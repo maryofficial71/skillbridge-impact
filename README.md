@@ -1,0 +1,3 @@
+# SkillBridge
+
+SkillBridge is a decentralized social impact platform built on Stacks blockchain that transforms professional skill verification by connecting verified professionals with underserved communities worldwide through gamified mentorship and capacity building. The platform operates through three interconnected systems: Impact Realms for location-based community challenges, Knowledge Commons for cross-cultural collaboration, and Change Catalyst Arena for time-limited development challenges with real-world implementation funding. Professionals earn dynamic Impact NFTs and hybrid credentials by contributing verified expertise to authentic local challenges, with community-validated outcomes ensuring genuine social impact while advancing purpose-driven careers.
