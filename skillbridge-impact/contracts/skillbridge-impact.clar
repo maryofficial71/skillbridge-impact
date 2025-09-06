@@ -274,3 +274,157 @@
                 amount: MINIMUM-STAKE,
                 locked-at: block-height,
                 released: false
+            })
+        ;; Add participant to challenge
+        (let ((updated-challenge (merge (unwrap-panic challenge) 
+                                      { participants: (unwrap-panic (as-max-len? (append (get participants (unwrap-panic challenge)) tx-sender) u20)) })))
+            (map-set development-challenges { challenge-id: challenge-id } updated-challenge))
+        (ok true)))
+
+(define-public (create-collaboration-pod (name (string-ascii 64)) (members (list 8 principal)))
+    (let ((pod-id (var-get next-pod-id)))
+        (asserts! (> (len name) u0) ERR-INVALID-INPUT)
+        (asserts! (> (len members) u0) ERR-INVALID-INPUT)
+        (asserts! (<= (len members) MAX-POD-SIZE) ERR-INVALID-INPUT)
+        (map-set collaboration-pods
+            { pod-id: pod-id }
+            {
+                name: name,
+                members: members,
+                active-challenge: none,
+                total-impact: u0,
+                cultural-bridge-score: u0,
+                created-at: block-height,
+                leader: tx-sender
+            })
+        (var-set next-pod-id (+ pod-id u1))
+        (ok pod-id)))
+
+(define-public (submit-verification (verification-id (string-ascii 64)) (challenge-id uint) (impact-rating uint) (feedback (string-ascii 256)))
+    (let ((challenge (map-get? development-challenges { challenge-id: challenge-id })))
+        (asserts! (is-some challenge) ERR-NOT-FOUND)
+        (asserts! (<= impact-rating u100) ERR-INVALID-INPUT)
+        (asserts! (> impact-rating u0) ERR-INVALID-INPUT)
+        (map-set community-verifications
+            { verification-id: verification-id }
+            {
+                professional: tx-sender,
+                community-validator: tx-sender,
+                challenge-id: challenge-id,
+                verified: false,
+                impact-rating: impact-rating,
+                feedback: feedback,
+                timestamp: block-height
+            })
+        (ok true)))
+
+(define-public (mint-impact-nft (nft-type (string-ascii 32)) (realm-id uint) (impact-value uint) (metadata (string-ascii 256)))
+    (let ((nft-id (var-get next-nft-id))
+          (profile (map-get? professional-profiles { professional: tx-sender })))
+        (asserts! (is-some profile) ERR-NOT-FOUND)
+        (asserts! (>= (get impact-score (unwrap-panic profile)) IMPACT-THRESHOLD) ERR-IMPACT-THRESHOLD-NOT-MET)
+        (asserts! (> impact-value u0) ERR-INVALID-INPUT)
+        (map-set impact-nfts
+            { nft-id: nft-id }
+            {
+                owner: tx-sender,
+                nft-type: nft-type,
+                realm-id: realm-id,
+                impact-value: impact-value,
+                metadata: metadata,
+                verified: false,
+                created-at: block-height,
+                expiry: none
+            })
+        (var-set next-nft-id (+ nft-id u1))
+        (ok nft-id)))
+
+(define-public (complete-challenge (challenge-id uint) (winner principal))
+    (let ((challenge (map-get? development-challenges { challenge-id: challenge-id })))
+        (asserts! (is-some challenge) ERR-NOT-FOUND)
+        (asserts! (is-eq tx-sender (get sponsor (unwrap-panic challenge))) ERR-NOT-AUTHORIZED)
+        (asserts! (is-eq (get status (unwrap-panic challenge)) "active") ERR-INVALID-INPUT)
+        
+        ;; Update challenge status and winner
+        (map-set development-challenges
+            { challenge-id: challenge-id }
+            (merge (unwrap-panic challenge) 
+                   { status: "completed", winner: (some winner) }))
+        
+        ;; Transfer reward to winner
+        (try! (as-contract (stx-transfer? (get reward-amount (unwrap-panic challenge)) tx-sender winner)))
+        
+        ;; Update winner's profile
+        (let ((winner-profile (unwrap-panic (map-get? professional-profiles { professional: winner }))))
+            (map-set professional-profiles
+                { professional: winner }
+                (merge winner-profile 
+                       { impact-score: (+ (get impact-score winner-profile) u50),
+                         verified-contributions: (+ (get verified-contributions winner-profile) u1),
+                         reputation: (+ (get reputation winner-profile) u25) })))
+        
+        (ok true)))
+
+(define-public (update-platform-fee (new-fee uint))
+    (begin
+        (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+        (asserts! (<= new-fee u1000) ERR-INVALID-INPUT) ;; Max 10%
+        (var-set platform-fee new-fee)
+        (ok true)))
+
+;; Read-only Functions
+(define-read-only (get-professional-profile (professional principal))
+    (map-get? professional-profiles { professional: professional }))
+
+(define-read-only (get-impact-realm (realm-id uint))
+    (map-get? impact-realms { realm-id: realm-id }))
+
+(define-read-only (get-development-challenge (challenge-id uint))
+    (map-get? development-challenges { challenge-id: challenge-id }))
+
+(define-read-only (get-collaboration-pod (pod-id uint))
+    (map-get? collaboration-pods { pod-id: pod-id }))
+
+(define-read-only (get-impact-nft (nft-id uint))
+    (map-get? impact-nfts { nft-id: nft-id }))
+
+(define-read-only (get-community-verification (verification-id (string-ascii 64)))
+    (map-get? community-verifications { verification-id: verification-id }))
+
+(define-read-only (get-skill-category (category (string-ascii 32)))
+    (map-get? skill-categories { category: category }))
+
+(define-read-only (get-impact-season (season-id uint))
+    (map-get? impact-seasons { season-id: season-id }))
+
+(define-read-only (get-professional-stake (professional principal) (challenge-id uint))
+    (map-get? professional-stakes { professional: professional, challenge-id: challenge-id }))
+
+(define-read-only (get-hybrid-nft-class (class-name (string-ascii 64)))
+    (map-get? hybrid-nft-classes { class-name: class-name }))
+
+(define-read-only (get-platform-stats)
+    {
+        total-impact-score: (var-get total-impact-score),
+        active-season-id: (var-get active-season-id),
+        platform-fee: (var-get platform-fee),
+        next-realm-id: (var-get next-realm-id),
+        next-challenge-id: (var-get next-challenge-id),
+        next-nft-id: (var-get next-nft-id),
+        next-pod-id: (var-get next-pod-id)
+    })
+
+;; Helper Functions
+(define-private (is-challenge-participant (challenge-id uint) (participant principal))
+    (let ((challenge (map-get? development-challenges { challenge-id: challenge-id })))
+        (match challenge
+            some-challenge (is-some (index-of (get participants some-challenge) participant))
+            false)))
+
+(define-private (calculate-impact-bonus (base-impact uint) (skill-category (string-ascii 32)))
+    (let ((category (map-get? skill-categories { category: skill-category })))
+        (match category
+            some-cat (if (get active some-cat)
+                        (* base-impact (get impact-multiplier some-cat))
+                        base-impact)
+            base-impact)))
